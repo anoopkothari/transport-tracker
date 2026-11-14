@@ -7,9 +7,9 @@ No server, no app to install, no monthly cost: everything runs inside the owner'
 **Jump to:** [Features](#features) · [Ideal daily flow (English)](#ideal-daily-flow) · [दैनिक उपयोग (हिंदी)](#दैनिक-उपयोग-का-तरीका-हिंदी) · [Setup](#setup-about-10-minutes) · [How it is built](#how-it-is-built)
 
 <p>
-<img src="screenshots/02-new-trip.png" width="240" alt="New trip form">
-<img src="screenshots/07-summary.png" width="240" alt="Summary with WhatsApp reminder">
-<img src="screenshots/08-whatsapp-message.png" width="240" alt="WhatsApp reminder message">
+<img src="02-new-trip.png" width="240" alt="New trip form">
+<img src="07-summary.png" width="240" alt="Summary with WhatsApp reminder">
+<img src="08-whatsapp-message.png" width="240" alt="WhatsApp reminder message">
 </p>
 
 ## Why it exists
@@ -50,7 +50,7 @@ Trips were tracked in a notebook and payments from memory. The goal was somethin
 ### 1. One time: add your regular parties, vehicles and drivers
 Open the form link and use the **Party**, **Vehicle**, **Driver** and **Transporter** tabs. You don't have to add everything up front: you can add a new name from inside the trip form when it first comes up.
 
-<img src="screenshots/01-party-master.png" width="260" alt="Party master">
+<img src="01-party-master.png" width="260" alt="Party master">
 
 ### 2. When a truck is loaded: enter the trip
 1. Tap **New trip**. The date is already today.
@@ -60,9 +60,9 @@ Open the form link and use the **Party**, **Vehicle**, **Driver** and **Transpor
 5. Enter any advance and tap **Save trip**. Weight, rate and advance can be left blank and filled in later.
 
 <p>
-<img src="screenshots/02-new-trip.png" width="240" alt="New trip">
-<img src="screenshots/03-type-to-search.png" width="240" alt="Type to search">
-<img src="screenshots/04-add-new-from-trip.png" width="240" alt="Add new driver from trip">
+<img src="02-new-trip.png" width="240" alt="New trip">
+<img src="03-type-to-search.png" width="240" alt="Type to search">
+<img src="04-add-new-from-trip.png" width="240" alt="Add new driver from trip">
 </p>
 
 ### 3. When money comes in: record the payment
@@ -71,8 +71,8 @@ Open the form link and use the **Party**, **Vehicle**, **Driver** and **Transpor
 3. Tap **Save payment**. The trip's remaining amount updates straight away; once it reaches zero the trip moves to "Cleared".
 
 <p>
-<img src="screenshots/05-trip-list.png" width="240" alt="Trip list">
-<img src="screenshots/06-payment.png" width="240" alt="Payment">
+<img src="05-trip-list.png" width="240" alt="Trip list">
+<img src="06-payment.png" width="240" alt="Payment">
 </p>
 
 ### 4. Every week: check who owes what and send reminders
@@ -82,9 +82,9 @@ Open the form link and use the **Party**, **Vehicle**, **Driver** and **Transpor
 4. For a formal statement, tap **View statement → Save as PDF** and send the PDF.
 
 <p>
-<img src="screenshots/07-summary.png" width="240" alt="Summary">
-<img src="screenshots/08-whatsapp-message.png" width="240" alt="WhatsApp message">
-<img src="screenshots/09-statement.png" width="240" alt="Statement">
+<img src="07-summary.png" width="240" alt="Summary">
+<img src="08-whatsapp-message.png" width="240" alt="WhatsApp message">
+<img src="09-statement.png" width="240" alt="Statement">
 </p>
 
 ### 5. Any time: find and fix
@@ -93,7 +93,7 @@ Open the form link and use the **Party**, **Vehicle**, **Driver** and **Transpor
 - **Print / PDF** on Trip list and Summary for a paper copy.
 - In the Google Sheet, the **🚚 Transport** menu refreshes reports, makes a backup now, and shows the code version.
 
-<img src="screenshots/10-trip-list-filters.png" width="260" alt="Trip list filters">
+<img src="10-trip-list-filters.png" width="260" alt="Trip list filters">
 
 **Who does what**
 
@@ -108,7 +108,7 @@ Open the form link and use the **Party**, **Vehicle**, **Driver** and **Transpor
 ### 1. पहली बार: अपनी पार्टी, गाड़ी और ड्राइवर जोड़ें
 फ़ॉर्म लिंक खोलें और **Party**, **Vehicle**, **Driver** और **Transporter** टैब में नाम जोड़ें। सब कुछ पहले से डालना ज़रूरी नहीं है, नया नाम ट्रिप भरते समय भी जोड़ सकते हैं।
 
-<img src="screenshots/01-party-master.png" width="260" alt="पार्टी मास्टर">
+<img src="01-party-master.png" width="260" alt="पार्टी मास्टर">
 
 ### 2. गाड़ी लोड होने पर: ट्रिप भरें
 1. **New trip** दबाएँ। तारीख़ अपने आप आज की होती है।
@@ -118,9 +118,9 @@ Open the form link and use the **Party**, **Vehicle**, **Driver** and **Transpor
 5. एडवांस डालें और **Save trip** दबाएँ। वज़न, दर और एडवांस बाद में भी भर सकते हैं।
 
 <p>
-<img src="screenshots/02-new-trip.png" width="240" alt="नई ट्रिप">
-<img src="screenshots/03-type-to-search.png" width="240" alt="टाइप करके खोजें">
-<img src="screenshots/04-add-new-from-trip.png" width="240" alt="ट्रिप से नया ड्राइवर जोड़ें">
+<img src="02-new-trip.png" width="240" alt="नई ट्रिप">
+<img src="03-type-to-search.png" width="240" alt="टाइप करके खोजें">
+<img src="04-add-new-from-trip.png" width="240" alt="ट्रिप से नया ड्राइवर जोड़ें">
 </p>
 
 ### 3. पैसा आने पर: पेमेंट दर्ज करें
@@ -129,8 +129,8 @@ Open the form link and use the **Party**, **Vehicle**, **Driver** and **Transpor
 3. **Save payment** दबाएँ। ट्रिप का बाकी पैसा तुरंत अपडेट हो जाता है; बाकी शून्य होने पर ट्रिप "Cleared" हो जाती है।
 
 <p>
-<img src="screenshots/05-trip-list.png" width="240" alt="ट्रिप लिस्ट">
-<img src="screenshots/06-payment.png" width="240" alt="पेमेंट">
+<img src="05-trip-list.png" width="240" alt="ट्रिप लिस्ट">
+<img src="06-payment.png" width="240" alt="पेमेंट">
 </p>
 
 ### 4. हर हफ़्ते: किसका कितना बाकी है देखें और याद दिलाएँ
@@ -140,9 +140,9 @@ Open the form link and use the **Party**, **Vehicle**, **Driver** and **Transpor
 4. पक्का हिसाब भेजना हो तो **View statement → Save as PDF** दबाएँ और PDF भेजें।
 
 <p>
-<img src="screenshots/07-summary.png" width="240" alt="समरी">
-<img src="screenshots/08-whatsapp-message.png" width="240" alt="WhatsApp मैसेज">
-<img src="screenshots/09-statement.png" width="240" alt="स्टेटमेंट">
+<img src="07-summary.png" width="240" alt="समरी">
+<img src="08-whatsapp-message.png" width="240" alt="WhatsApp मैसेज">
+<img src="09-statement.png" width="240" alt="स्टेटमेंट">
 </p>
 
 ### 5. कभी भी: खोजें और सुधारें
@@ -151,7 +151,7 @@ Open the form link and use the **Party**, **Vehicle**, **Driver** and **Transpor
 - कागज़ पर कॉपी के लिए Trip list और Summary में **Print / PDF**।
 - Google Sheet में **🚚 Transport** मेन्यू से रिपोर्ट रिफ़्रेश करें, तुरंत बैकअप लें और कोड का वर्ज़न देखें।
 
-<img src="screenshots/10-trip-list-filters.png" width="260" alt="ट्रिप लिस्ट फ़िल्टर">
+<img src="10-trip-list-filters.png" width="260" alt="ट्रिप लिस्ट फ़िल्टर">
 
 **कौन क्या करे**
 
