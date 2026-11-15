@@ -18,7 +18,10 @@
  *                      notes, party details, freight-not-entered, phone
  *                      and days pending; statement adds driver, weight,
  *                      rate, party details and payments received;
- *                      weights keep decimals in PDFs
+ *                      weights keep decimals in PDFs; Refresh also on
+ *                      New trip and Payment; an unsaved trip or payment
+ *                      is kept on the phone and filled back in after
+ *                      Refresh or a browser reload
  *   v3.13 13-Nov-2026  WhatsApp reminder: your Hindi wording, commodity
  *                      added, English part mirrors the Hindi part
  *   v3.12 13-Nov-2026  WhatsApp reminder also shows the rate per quintal
@@ -1545,7 +1548,7 @@ textarea{height:64px}
 <div class="msg" id="msg"></div>
 
 <div class="view" id="v_trip"><div class="c">
-<div><h1 id="t_title">New trip</h1><div class="sub" id="t_sub"></div></div>
+<div id="t_head"><div class="hd2"><h1 id="t_title">New trip</h1><div class="hbtns"><button type="button" class="more" id="t_refresh">Refresh</button></div></div><div class="sub" id="t_sub"></div></div>
 <div class="g">
 <div><label class="req">Date</label><input type="date" id="t_date"></div>
 <div><label class="req">Party</label><select id="t_party"></select></div>
@@ -1579,7 +1582,7 @@ textarea{height:64px}
 </div></div>
 
 <div class="view" id="v_payment"><div class="c">
-<div><h1 id="p_title">Payment received</h1></div>
+<div id="p_head" class="hd2"><h1 id="p_title">Payment received</h1><div class="hbtns"><button type="button" class="more" id="p_refresh">Refresh</button></div></div>
 <div class="g">
 <div><label class="req">Date</label><input type="date" id="p_date"></div>
 <div><label class="req">Party</label><select id="p_party"></select></div>
@@ -2030,7 +2033,7 @@ $('t_save').onclick = function(){
         addList(D.commodities, [d.commodity]); fillList('comms', D.commodities);
         var txt = 'Trip ' + res.id + (wasEdit ? ' updated.' : ' saved.') +
           (f === null ? ' Add weight and rate later from Trip list.' : ' Freight ₹' + inr(f) + '.');
-        tripReset(); refreshReports();
+        tripReset(); clearDraft('trip'); refreshReports();
         if (wasEdit) { openId = res.id; go('trips', true); }
         reloadTrips();
         show(txt, 'ok');
@@ -2140,7 +2143,7 @@ $('p_save').onclick = function(){
           return;
         }
         var txt = 'Payment ' + res.id + (wasEdit ? ' updated.' : ' saved.') + (amt > 0 ? ' ₹' + inr(amt) + ' received.' : '') + (ex > 0 ? ' Expense ₹' + inr(ex) + '.' : '');
-        payReset(); refreshReports();
+        payReset(); clearDraft('pay'); refreshReports();
         if (back) { openId = d.tripId; go('trips', true); }
         reloadTrips();
         show(txt, 'ok');
@@ -2783,6 +2786,73 @@ function showStatement(){
 }
 (function(){ var r = sRange('This month'); $('s_from').value = r[0]; $('s_to').value = r[1]; })();
 
+/* ---------- unsaved trip / payment kept on this phone ----------
+   What is typed in New trip or Payment is kept in the phone's browser until it is saved, so Refresh,
+   a browser reload or an accidental pull-down does not lose it. Cleared after a successful save. */
+var TRIP_F = ['t_date','t_party','t_vehicle','t_driver','t_driver2','t_driver3','t_transporter','t_commodity','t_from','t_to','t_weight','t_rate','t_fixed','t_advance','t_via','t_phone','t_notes'];
+var PAY_F = ['p_date','p_party','p_trip','p_amount','p_expense','p_ref','p_notes'];
+var DKEY = 'tt_draft_', draftOff = false;
+function saveDraft(kind){
+  if (draftOff) return;
+  var trip = kind === 'trip', ids = trip ? TRIP_F : PAY_F, d = {}, blank = true;
+  ids.forEach(function(i){
+    var v = $(i).value; if (v === NEW) v = '';
+    d[i] = v;
+    if (v && !((i === 't_date' || i === 'p_date') && v === D.today) && !(i === 't_transporter' && v === 'Self / Own vehicle')) blank = false;
+  });
+  d._mode = trip ? tripMode : payMode;
+  if (trip) d._drv = driverCount();
+  var ed = trip ? editTrip : editPay;
+  d._edit = ed ? ed.id : '';
+  try { if (blank && !d._edit) localStorage.removeItem(DKEY + kind); else localStorage.setItem(DKEY + kind, JSON.stringify(d)); } catch (e) {}
+}
+function clearDraft(kind){ try { localStorage.removeItem(DKEY + kind); } catch (e) {} draftNote(kind, false); }
+function draftNote(kind, on){
+  var id = kind === 'trip' ? 't_draftNote' : 'p_draftNote', n = $(id);
+  if (!on) { if (n) n.remove(); return; }
+  if (!n) { n = el('div', 'info'); n.id = id; var h = $(kind === 'trip' ? 't_head' : 'p_head'); h.parentNode.insertBefore(n, h.nextSibling); }
+  n.style.display = 'block'; n.innerHTML = '';
+  var ed = kind === 'trip' ? editTrip : editPay;
+  n.appendChild(document.createTextNode(ed ? 'Your unsaved changes were kept. ' : (kind === 'trip' ? 'Your unsaved trip was kept. ' : 'Your unsaved payment was kept. ')));
+  var c = el('button', 'more', 'Clear'); c.type = 'button';
+  c.onclick = function(){ clearDraft(kind); if (kind === 'trip') tripReset(); else payReset(); };
+  n.appendChild(c);
+}
+function findPay(id){
+  var hit = null;
+  D.trips.forEach(function(t){ (t.pays || []).forEach(function(p){ if (p.id === id) hit = p; }); });
+  (D.onacc || []).forEach(function(p){ if (!hit && p.id === id) hit = { id: p.id, date: p.date, party: p.party, tripId: '', amount: p.amount, expense: p.expense, mode: p.mode, ref: p.ref, notes: '' }; });
+  return hit;
+}
+function restoreDraft(kind){
+  var d = null; try { d = JSON.parse(localStorage.getItem(DKEY + kind) || 'null'); } catch (e) {}
+  if (!d) return;
+  var trip = kind === 'trip';
+  if (d._edit) {
+    if (D.start !== (trip ? 'trip' : 'payment')) return;   // an edit is reopened only on its own page
+    if (trip) { var t = D.trips.filter(function(x){ return x.id === d._edit; })[0]; if (!t) { clearDraft(kind); return; } startEditTrip(t); }
+    else { var pp = findPay(d._edit); if (!pp) { clearDraft(kind); return; } startEditPayment(pp); }
+  }
+  draftOff = true;
+  if (trip) { setTripMode(d._mode === 'Fixed amount' ? 'Fixed amount' : 'Per quintal'); showDrivers(Math.min(3, Math.max(1, +d._drv || 1))); }
+  (trip ? TRIP_F : PAY_F).forEach(function(i){
+    if (!(i in d) || i === 'p_trip') return;
+    var e = $(i), v = d[i] || '';
+    if (e.tagName === 'SELECT') { if (v) selVal(e, v); else e.value = ''; } else e.value = v;
+  });
+  if (trip) { tripMore(!!(d.t_via || d.t_phone || d.t_notes)); tripCalc(); }
+  else { payTripOpts(false); if (d.p_trip) $('p_trip').value = d.p_trip; setPayMode(d._mode || ''); payMore(!!d.p_notes); payCalc(); }
+  syncCombos(); draftOff = false; draftNote(kind, true);
+}
+[['v_trip', 'trip'], ['v_payment', 'pay']].forEach(function(x){
+  var v = $(x[0]), later = function(){ setTimeout(function(){ saveDraft(x[1]); }, 0); };
+  v.addEventListener('input', later, true);
+  v.addEventListener('change', later, true);
+  v.addEventListener('click', later, true);
+});
+$('t_refresh').onclick = function(){ if ($('t_save').disabled) return; saveDraft('trip'); fullReload($('t_refresh')); };
+$('p_refresh').onclick = function(){ if ($('p_save').disabled) return; saveDraft('pay'); fullReload($('p_refresh')); };
+
 /* ---------- start ---------- */
 $('biz').textContent = D.biz + ' · forms ' + D.ver;
 $('whoSave').onclick = function(){
@@ -2819,6 +2889,7 @@ document.querySelectorAll('input,select,textarea').forEach(function(e){ e.addEve
   }
 })();
 go(D.start || 'trip', true);
+restoreDraft('trip'); restoreDraft('pay');
 </script></body></html>`;
 
 /* =====================================================================

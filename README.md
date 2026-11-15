@@ -37,7 +37,8 @@ Trips were tracked in a notebook and payments from memory. The goal was somethin
 - Sheet tabs: Dashboard, Trip Summary, Party / Vehicle / Driver / Monthly summaries, and a Custom Report with filters (dates, party, vehicle, driver, transporter).
 - Print / Save as PDF from Trip list and Summary. For one party the Summary PDF shows the party's details (phone, address, GSTIN), and weight, rate and notes for each trip; for all parties it adds phone and days pending.
 - Party or transporter statement as PDF, with party details, driver, weight and rate for each trip, and a list of payments received.
-- **Refresh** reopens the page with fresh data on the same tab and filters; reloading the browser also keeps your tab.
+- **Refresh** on every main page (New trip, Payment, Trip list, Summary) reopens the page with fresh data on the same tab and filters; reloading the browser also keeps your tab.
+- An unsaved trip or payment is kept on the phone and filled back in after Refresh, a browser reload or an accidental pull-down. It is cleared once saved, or with **Clear**.
 - **WhatsApp reminder** sent from the owner's own number with one tap (uses `wa.me` links, no paid API). Hindi first, then the same in English: date, route, vehicle, commodity, weight, rate, freight and pending amount for each trip.
 
 **Safety**
