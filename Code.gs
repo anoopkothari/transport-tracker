@@ -1,7 +1,7 @@
 /****************************************************************
  * TRANSPORT FREIGHT TRACKER — Mobile forms + Google Sheets
  *
- * VERSION: v3.13 (13-Nov-2026)
+ * VERSION: v3.14 (15-Nov-2026)
  * To check which version is running:
  *   - Sheet:  🚚 Transport menu → "Code version …" (last item)
  *   - Phone forms: shown at the top, next to the business name
@@ -10,6 +10,15 @@
  *   keep showing the old version).
  *
  * VERSION HISTORY
+ *   v3.14 15-Nov-2026  Refresh reloads the whole page and stays on the
+ *                      same tab and filters (browser reload too);
+ *                      "on account" payments reduce a party's pending in
+ *                      Summary, reminder and statement; all trips loaded
+ *                      (no 1,000 limit); Summary print adds weight, rate,
+ *                      notes, party details, freight-not-entered, phone
+ *                      and days pending; statement adds driver, weight,
+ *                      rate, party details and payments received;
+ *                      weights keep decimals in PDFs
  *   v3.13 13-Nov-2026  WhatsApp reminder: your Hindi wording, commodity
  *                      added, English part mirrors the Hindi part
  *   v3.12 13-Nov-2026  WhatsApp reminder also shows the rate per quintal
@@ -105,7 +114,7 @@ const CONFIG = {
   DOC_EXPIRY_ALERT_DAYS: 30   // insurance / permit / licence alerts
 };
 
-const CODE_VERSION = 'v3.13';   // change this line together with VERSION at the top
+const CODE_VERSION = 'v3.14';   // change this line together with VERSION at the top
 
 const CUR = '₹#,##0;-₹#,##0';
 const DATE_F = 'dd-mmm-yyyy';
@@ -873,6 +882,7 @@ function appData_(start) {
     rec: rec,
     trips: live.trips,
     pending: live.pending,
+    onacc: live.onacc,
     locations: uniq_(locs),
     commodities: uniq_(readTable_(S.COMMODITIES).map(r => r['Commodity']).concat(trips.map(r => r['Commodity']))),
     modes: PAY_MODES,
@@ -886,10 +896,23 @@ function appData_(start) {
 function doGet(e) {
   const tabs = ['trip', 'payment', 'trips', 'summary', 'party', 'vehicle', 'driver', 'transporter'];
   const f = e && e.parameter && tabs.indexOf(e.parameter.f) >= 0 ? e.parameter.f : 'trip';
-  const html = APP_HTML.replace('__DATA__', JSON.stringify(appData_(f)).replace(/</g, '\\u003c'));
+  const data = appData_(f);
+  data.qs = cleanQs_(e && e.parameter);
+  try { data.url = ScriptApp.getService().getUrl(); } catch (err) { data.url = ''; }
+  const html = APP_HTML.replace('__DATA__', JSON.stringify(data).replace(/</g, '\\u003c'));
   return HtmlService.createHtmlOutput(html)
     .setTitle(CONFIG.BUSINESS_NAME + ' – Entry')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+// Tab state from the page address (?f=summary&by=party&from=...), so Refresh and a browser
+// reload come back to the same tab with the same filters.
+function cleanQs_(p) {
+  const out = {};
+  ['by', 'which', 'from', 'to', 'min', 'lf', 'lby', 'lwhich', 'lfrom', 'lto', 'q'].forEach(k => {
+    if (p && Object.prototype.hasOwnProperty.call(p, k)) out[k] = String(p[k]).slice(0, 100);
+  });
+  return out;
 }
 
 // Called by the forms right after a save, so the save itself stays quick.
@@ -1211,12 +1234,12 @@ function pendingMap_(data) {
   return m;
 }
 
-// Trips for the phone forms (newest first, up to 1000) plus pending per party.
+// All trips for the phone forms (newest first), pending per party, and payments that are not
+// linked to a trip ("on account"), which reduce the party's pending in Summary and statements.
 function appTrips_() {
   const data = tripData_();
   const out = data.trips.slice()
     .sort((a, b) => (b.date || 0) - (a.date || 0) || (b.id < a.id ? -1 : 1))
-    .slice(0, 1000)
     .map(t => ({
       id: t.id, date: t.date ? ymd_(t.date) : '', vehicle: t.vehicle, driver: t.driver, party: t.party,
       transporter: t.transporter, from: t.from, via: t.via, to: t.to, phone: t.phone, commodity: t.commodity,
@@ -1228,7 +1251,10 @@ function appTrips_() {
       pays: t.pays.map(p => ({ id: p.id, date: p.date ? ymd_(p.date) : '', amount: p.amount, expense: p.expense,
         mode: p.mode, ref: p.ref, notes: p.notes, tripId: p.tripId, party: p.party }))
     }));
-  return { trips: out, pending: pendingMap_(data) };
+  const onacc = data.pays.filter(p => !p.linked && p.party).map(p => ({
+    id: p.id, date: p.date ? ymd_(p.date) : '', party: p.party, amount: p.amount, expense: p.expense,
+    mode: p.mode, ref: p.ref }));
+  return { trips: out, pending: pendingMap_(data), onacc: onacc };
 }
 
 // Party / transporter statement as a PDF in Drive (folder "Party Statements" inside the app folder).
@@ -1291,56 +1317,101 @@ function subFolder_(name) {
 }
 
 // Print / PDF from the phone forms: makes a PDF of the table on screen (Trip list or Summary) in
-// Drive → Transport Tracker → Reports. spec = { title, subtitle, head: [...], rows: [[...]], foot: [...], numCols: [...] }.
+// Drive → Transport Tracker → Reports. spec = { title, subtitle, head: [...], rows: [[...]], foot: [...],
+// numCols: [...], info: [[label, value]] (party details at the top), lines: [[label, amount]] (totals
+// under the table), notes: ['...'] }.
 function makeReportPdf(spec) {
   spec = spec || {};
   const head = (spec.head || []).map(x => str_(x));
-  const rows = (spec.rows || []).slice(0, 3000);
+  const rows = (spec.rows || []).slice(0, 5000);
   const foot = spec.foot || null, numCols = spec.numCols || [];
   if (!rows.length) throw new Error('Nothing to print for these filters.');
-  const td = i => 'style="border:1px solid #ccc;padding:3px 4px;font-size:9px;font-family:Arial,sans-serif' + (numCols.indexOf(i) >= 0 ? ';text-align:right' : '') + '"';
-  const cell = (v, i) => '<td ' + td(i) + '>' + esc_(typeof v === 'number' ? inr_(v) : str_(v)) + '</td>';
-  const html = '<div style="font-family:Arial,sans-serif;font-size:9px;color:#111">' +
+  const font = 'font-family:Arial,sans-serif';
+  const td = i => 'style="border:1px solid #ccc;padding:3px 4px;font-size:9px;' + font + (numCols.indexOf(i) >= 0 ? ';text-align:right' : '') + '"';
+  const cell = (v, i) => '<td ' + td(i) + '>' + esc_(typeof v === 'number' ? fmtNum_(v) : str_(v)) + '</td>';
+  const info = (spec.info || []).filter(x => x && str_(x[1]));
+  const lines = spec.lines || [], notes = (spec.notes || []).filter(x => str_(x));
+  const html = '<div style="' + font + ';font-size:9px;color:#111">' +
     '<h2 style="margin:0;font-size:15px">' + esc_(CONFIG.BUSINESS_NAME) + ' — ' + esc_(spec.title) + '</h2>' +
-    '<p style="margin:4px 0 10px">' + esc_(spec.subtitle) + '<br>Printed: ' +
+    '<p style="margin:4px 0 6px">' + esc_(spec.subtitle) + '<br>Printed: ' +
     esc_(Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'dd-MMM-yyyy HH:mm')) + '</p>' +
+    (info.length ? '<p style="margin:0 0 8px;font-size:10px">' +
+      info.map(x => '<b>' + esc_(x[0]) + ':</b> ' + esc_(x[1])).join(' &nbsp;·&nbsp; ') + '</p>' : '') +
     '<table style="border-collapse:collapse;width:100%;font-size:9px"><tr style="background:#1f4e78;color:#fff">' +
     head.map((h, i) => '<th ' + td(i) + '>' + esc_(h) + '</th>').join('') + '</tr>' +
     rows.map(r => '<tr>' + (r || []).map(cell).join('') + '</tr>').join('') +
-    (foot ? '<tr style="font-weight:bold;background:#f1f3f6">' + foot.map(cell).join('') + '</tr>' : '') + '</table></div>';
+    (foot ? '<tr style="font-weight:bold;background:#f1f3f6">' + foot.map(cell).join('') + '</tr>' : '') + '</table>' +
+    (lines.length ? '<table style="border-collapse:collapse;margin-top:8px;font-size:10px">' +
+      lines.map((x, i) => '<tr' + (i === lines.length - 1 ? ' style="font-weight:bold"' : '') + '><td style="padding:2px 12px 2px 0;' + font + '">' +
+        esc_(x[0]) + '</td><td style="padding:2px 0;text-align:right;' + font + '">Rs. ' + fmtNum_(num_(x[1])) + '</td></tr>').join('') + '</table>' : '') +
+    notes.map(n => '<p style="margin:6px 0 0;color:#555">' + esc_(n) + '</p>').join('') + '</div>';
   const fname = str_(spec.title).replace(/[^\w ]+/g, '').replace(/\s+/g, '_') + '_' +
     Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd_HHmm') + '.pdf';
   const file = subFolder_('Reports').createFile(HtmlService.createHtmlOutput(html).getBlob().getAs('application/pdf').setName(fname));
   return { url: file.getUrl(), name: fname };
 }
 
+// Party / transporter details for the top of a PDF, from the latest master entry.
+function masterInfo_(by, name) {
+  const def = APP_MASTERS[by];
+  if (!def) return [];
+  const k = key_(name);
+  const r = latestBy_(readTable_(def.sheet), x => key_(x[def.key])).filter(x => key_(x[def.key]) === k)[0];
+  if (!r) return [];
+  const fields = by === 'party' ? ['Contact Person', 'Phone', 'Address', 'City', 'GSTIN', 'Credit Days']
+    : ['Contact Person', 'Phone', 'Address', 'GSTIN / PAN'];
+  return fields.filter(h => str_(r[h])).map(h => [h, str_(r[h])]);
+}
+
 function makeStatementPdf(spec) {
   spec = spec || {};
   const by = spec.by === 'transporter' ? 'transporter' : 'party';
   const k = key_(spec.name), min = num_(spec.min);
-  const rows = tripData_().trips.filter(t => {
+  const inPeriod = d => (!spec.from || d >= spec.from) && (!spec.to || d <= spec.to);
+  const data = tripData_();
+  const rows = data.trips.filter(t => {
     const nm = by === 'party' ? t.party : (t.transporter || 'Self / Own vehicle');
-    const d = t.date ? ymd_(t.date) : '';
-    return key_(nm) === k && t.status === 'Due' && t.remaining >= min &&
-      (!spec.from || d >= spec.from) && (!spec.to || d <= spec.to);
+    return key_(nm) === k && t.status === 'Due' && t.remaining >= min && inPeriod(t.date ? ymd_(t.date) : '');
   }).sort((a, b) => (a.date || 0) - (b.date || 0));
   if (!rows.length) throw new Error('No pending trips for these filters.');
   const name = by === 'party' ? rows[0].party : (rows[0].transporter || 'Self / Own vehicle');
   const period = (spec.from ? fmtD_(parseYmd_(spec.from)) : 'Start') + ' to ' + (spec.to ? fmtD_(parseYmd_(spec.to)) : fmtD_(new Date()));
-  const td = 'style="border:1px solid #ccc;padding:4px 5px;font-size:10px;font-family:Arial,sans-serif"',
-    tdr = 'style="border:1px solid #ccc;padding:4px 5px;font-size:10px;font-family:Arial,sans-serif;text-align:right"';
+  const f = 'font-family:Arial,sans-serif', b = 'border:1px solid #ccc;padding:4px 5px;font-size:10px;' + f;
+  const td = 'style="' + b + '"', tdr = 'style="' + b + ';text-align:right"';
+  const th = h => '<th ' + td + '>' + h + '</th>';
   const total = rows.reduce((s, t) => s + t.remaining, 0);
-  const html = '<div style="font-family:Arial,sans-serif;font-size:11px;color:#111">' +
+
+  // Payments received: those against the listed trips, plus "on account" payments of this party in the period.
+  const onacc = by === 'party' ? data.pays.filter(p => !p.linked && key_(p.party) === k && inPeriod(p.date ? ymd_(p.date) : '')) : [];
+  const oa = onacc.reduce((s, p) => s + p.amount + p.expense, 0);
+  const pays = [];
+  rows.forEach(t => t.pays.forEach(p => pays.push({ p: p, against: t.id })));
+  onacc.forEach(p => pays.push({ p: p, against: 'On account' }));
+  pays.sort((x, y) => (x.p.date || 0) - (y.p.date || 0));
+
+  const info = [[by === 'party' ? 'Party' : 'Transporter', name]].concat(masterInfo_(by, name));
+  const rate = t => t.ftype === 'Fixed amount' ? 'Fixed' : (t.rateRaw === '' ? '' : fmtNum_(t.rateRaw));
+  const html = '<div style="' + f + ';font-size:11px;color:#111">' +
     '<h2 style="margin:0">' + esc_(CONFIG.BUSINESS_NAME) + ' — Statement</h2>' +
-    '<p style="margin:4px 0 12px">' + (by === 'party' ? 'Party' : 'Transporter') + ': <b>' + esc_(name) + '</b><br>Period: ' + esc_(period) +
-    '<br>Date: ' + esc_(fmtD_(new Date())) + '</p>' +
+    '<p style="margin:4px 0 12px">' + info.map(x => esc_(x[0]) + ': <b>' + esc_(x[1]) + '</b>').join('<br>') +
+    '<br>Period: ' + esc_(period) + '<br>Date: ' + esc_(fmtD_(new Date())) + '</p>' +
     '<table style="border-collapse:collapse;width:100%;font-size:10px"><tr style="background:#1f4e78;color:#fff">' +
-    ['Date', 'Trip no.', 'Route', 'Vehicle', 'Freight', 'Advance', 'Paid', 'Expense', 'Pending'].map(h => '<th ' + td + '>' + h + '</th>').join('') + '</tr>' +
+    ['Date', 'Trip no.', 'Route', 'Vehicle', 'Driver', 'Weight (qtl)', 'Rate (Rs./qtl)', 'Freight', 'Advance', 'Paid', 'Expense', 'Pending'].map(th).join('') + '</tr>' +
     rows.map(t => '<tr><td ' + td + '>' + esc_(fmtD_(t.date)) + '</td><td ' + td + '>' + esc_(t.id) + '</td><td ' + td + '>' +
-      esc_(t.from + ' → ' + t.to) + '</td><td ' + td + '>' + esc_(t.vehicle) + '</td>' +
-      [t.freight, t.advance, t.paid, t.expense].map(v => '<td ' + tdr + '>' + inr_(v) + '</td>').join('') +
-      '<td ' + tdr + '><b>' + inr_(t.remaining) + '</b></td></tr>').join('') +
-    '<tr><td colspan="8" ' + tdr + '><b>Total pending (Rs.)</b></td><td ' + tdr + '><b>' + inr_(total) + '</b></td></tr></table>' +
+      esc_(t.from + ' → ' + t.to) + '</td><td ' + td + '>' + esc_(t.vehicle) + '</td><td ' + td + '>' + esc_(t.driver) + '</td>' +
+      '<td ' + tdr + '>' + (t.weightRaw === '' ? '' : fmtNum_(t.weightRaw)) + '</td><td ' + tdr + '>' + esc_(rate(t)) + '</td>' +
+      [t.freight, t.advance, t.paid, t.expense].map(v => '<td ' + tdr + '>' + fmtNum_(v) + '</td>').join('') +
+      '<td ' + tdr + '><b>' + fmtNum_(t.remaining) + '</b></td></tr>').join('') +
+    '<tr><td colspan="11" ' + tdr + '><b>Total pending on these trips (Rs.)</b></td><td ' + tdr + '><b>' + fmtNum_(total) + '</b></td></tr>' +
+    (oa ? '<tr><td colspan="11" ' + tdr + '>Less: payments received on account (Rs.)</td><td ' + tdr + '>-' + fmtNum_(oa) + '</td></tr>' +
+      '<tr><td colspan="11" ' + tdr + '><b>Net pending (Rs.)</b></td><td ' + tdr + '><b>' + fmtNum_(total - oa) + '</b></td></tr>' : '') +
+    '</table>' +
+    (pays.length ? '<h3 style="margin:14px 0 4px;font-size:12px">Payments received</h3>' +
+      '<table style="border-collapse:collapse;width:100%;font-size:10px"><tr style="background:#1f4e78;color:#fff">' +
+      ['Date', 'Payment no.', 'Against', 'Mode', 'Reference', 'Amount', 'Expense'].map(th).join('') + '</tr>' +
+      pays.map(x => '<tr><td ' + td + '>' + esc_(x.p.date ? fmtD_(x.p.date) : '') + '</td><td ' + td + '>' + esc_(x.p.id) + '</td><td ' + td + '>' +
+        esc_(x.against) + '</td><td ' + td + '>' + esc_(x.p.mode) + '</td><td ' + td + '>' + esc_(x.p.ref) + '</td><td ' + tdr + '>' +
+        fmtNum_(x.p.amount) + '</td><td ' + tdr + '>' + fmtNum_(x.p.expense) + '</td></tr>').join('') + '</table>' : '') +
     '<p style="color:#555;margin-top:10px">Only trips with payment pending are shown. Amounts in Rupees.</p></div>';
   const app = getOrCreateFolder_(CONFIG.APP_FOLDER);
   const it = app.getFoldersByName('Party Statements');
@@ -1571,6 +1642,7 @@ textarea{height:64px}
 </div>
 <script>
 var D = __DATA__;
+var sPickInit = '', lPickInit = '';
 var TABS = [['trip','New trip'],['payment','Payment'],['trips','Trip list'],['summary','Summary']];
 var TABS2 = [['party','Party'],['vehicle','Vehicle'],['driver','Driver'],['transporter','Transporter']];
 var NEW = '__new__', ACCT = '__acct__';
@@ -1584,6 +1656,7 @@ var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov',
 
 function $(i){ return document.getElementById(i); }
 function inr(x){ return Math.round(x).toLocaleString('en-IN'); }
+function qty(x){ return Number(x || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 }); }
 function num(id){ var v = parseFloat($(id).value); return isNaN(v) ? 0 : v; }
 function norm(type, s){ s = String(s || '').trim(); return type === 'vehicle' ? s.toUpperCase().replace(/[\\s-]/g, '') : s.toLowerCase().replace(/\\s+/g, ' '); }
 function names(type){ var k = D.defs[type].key; return D.rec[type].map(function(r){ return r[k]; }); }
@@ -1700,6 +1773,38 @@ function go(t, noReload){
   var a = $('askbox'); if (a) a.remove();
   if (t === 'trips') { renderList(); if (!noReload) reloadTrips(); }
   if (t === 'summary') { $('s_stmt').style.display = 'none'; $('s_main').style.display = 'flex'; renderSummary(); if (!noReload) reloadTrips(); }
+  saveState();
+}
+/* ---------- page address keeps the tab and filters, so Refresh and a browser reload come back to them ---------- */
+function curTab(){ var t = D.start || 'trip'; TABS.concat(TABS2).forEach(function(x){ if ($('v_' + x[0]).style.display === 'block') t = x[0]; }); return t; }
+function stateParams(){
+  var t = curTab(), p = { f: t };
+  if (t === 'summary') { p.by = sBy; p.which = $('s_which').value; p.from = $('s_from').value; p.to = $('s_to').value; p.min = $('s_min').value; }
+  if (t === 'trips') { p.lf = listFilter; p.lby = lBy; p.lwhich = $('l_which').value; p.lfrom = $('l_from').value; p.lto = $('l_to').value; p.q = $('l_q').value; }
+  return p;
+}
+function saveState(){ try { google.script.history.replace(null, stateParams()); } catch (e) {} }
+// Refresh = open the page again (all trips, payments, parties, vehicles, drivers and today's date are
+// loaded fresh) on the same tab with the same filters.
+function fullReload(btn){
+  btn.disabled = true; btn.textContent = 'Refreshing…';
+  var p = stateParams();
+  var qs = Object.keys(p).map(function(k){ return encodeURIComponent(k) + '=' + encodeURIComponent(p[k] == null ? '' : p[k]); }).join('&');
+  function fallback(){
+    reloadTrips(function(ok){
+      btn.disabled = false; btn.textContent = ok ? 'Updated' : 'Refresh';
+      setTimeout(function(){ btn.textContent = 'Refresh'; }, 2500);
+    });
+  }
+  if (D.url) {
+    try { window.open(D.url + '?' + qs, '_top'); } catch (e) { fallback(); return; }
+    setTimeout(fallback, 8000);   // only runs if the browser did not open the page again
+    return;
+  }
+  reloadTrips(function(ok){
+    btn.disabled = false; btn.textContent = ok ? 'Updated' : 'Refresh';
+    setTimeout(function(){ btn.textContent = 'Refresh'; }, 2500);
+  });
 }
 [[TABS, 'tabs'], [TABS2, 'tabs2']].forEach(function(g){
   g[0].forEach(function(x){
@@ -1711,8 +1816,8 @@ function go(t, noReload){
 function reloadTrips(cb){
   $('l_tot').textContent = 'Refreshing…';
   google.script.run
-    .withSuccessHandler(function(r){ D.trips = r.trips; D.pending = r.pending; renderList(); renderSummary(); payTripOpts(true); if (cb) cb(); })
-    .withFailureHandler(function(){ renderList(); if (cb) cb(); })
+    .withSuccessHandler(function(r){ D.trips = r.trips; D.pending = r.pending; D.onacc = r.onacc || []; renderList(); renderSummary(); payTripOpts(true); if (cb) cb(true); })
+    .withFailureHandler(function(e){ renderList(); show('Could not load the latest trips: ' + errText(e) + '. Check the internet and tap Refresh.', 'err'); if (cb) cb(false); })
     .getAppTrips();
 }
 
@@ -2076,7 +2181,7 @@ function lNames(t){ return lBy === 'driver' ? drvList(t.driver) : [lName(t)]; }
 function lKey(v){ return lBy === 'vehicle' ? norm('vehicle', v) : norm('party', v); }
 ['l_from', 'l_to'].forEach(function(i){ $(i).addEventListener('change', function(){ listLimit = 50; renderList(); }); });
 $('l_q').addEventListener('input', function(){ listLimit = 50; renderList(); });
-$('l_refresh').onclick = function(){ reloadTrips(); };
+$('l_refresh').onclick = function(){ fullReload($('l_refresh')); };
 $('l_moreBtn').onclick = function(){ listLimit += 50; renderList(); };
 function el(tag, cls, text){ var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 function renderList(){
@@ -2086,7 +2191,8 @@ function renderList(){
   var lb = LBY.filter(function(x){ return x[0] === lBy; })[0];
   Array.prototype.forEach.call($('l_by').children, function(x){ x.className = x.dataset.k === lBy ? 'on' : ''; });
   $('l_whichLbl').textContent = lb[1];
-  var ws = $('l_which'), wcur = ws.value, seen = {}, names = [];
+  var ws = $('l_which'), wcur = lPickInit || ws.value, seen = {}, names = [];
+  lPickInit = '';
   D.trips.forEach(function(t){ lNames(t).forEach(function(n){ var k = lKey(n); if (k && !seen[k]) { seen[k] = n; names.push(k); } }); });
   ws.innerHTML = ''; opt(ws, '', 'All ' + lb[2]);
   names.sort(function(a, b){ return seen[a].localeCompare(seen[b]); }).forEach(function(k){ opt(ws, k, seen[k]); });
@@ -2109,6 +2215,7 @@ function renderList(){
   if (!rows.length) box.appendChild(el('div', 'sub', 'No trips match.'));
   rows.slice(0, listLimit).forEach(function(t){ box.appendChild(card(t)); });
   $('l_moreBtn').style.display = rows.length > listLimit ? '' : 'none';
+  if (curTab() === 'trips') saveState();
   if (openId) { var o = $('trip_' + openId); if (o) o.scrollIntoView({ block: 'center' }); openId = ''; }
   syncCombos();
 }
@@ -2303,7 +2410,7 @@ SDATES.forEach(function(f){
 });
 ['s_from', 's_to', 's_which'].forEach(function(i){ $(i).addEventListener('change', renderSummary); });
 $('s_min').addEventListener('input', renderSummary);
-$('s_refresh').onclick = function(){ reloadTrips(); };
+$('s_refresh').onclick = function(){ fullReload($('s_refresh')); };
 function kpi(label, value, main){ var k = el('div', 'kpi' + (main ? ' main' : '')); k.appendChild(el('span', '', label)); k.appendChild(el('b', '', value)); return k; }
 function renderSummary(){
   if (!$('s_by').children.length) return;
@@ -2323,7 +2430,8 @@ function renderSummary(){
       groups[k].trips.push(t);
     });
   });
-  var sel = $('s_which'), cur = sel.value;
+  var sel = $('s_which'), cur = sPickInit || sel.value;
+  sPickInit = '';
   sel.innerHTML = ''; opt(sel, '', 'All ' + sb[2]);
   order.slice().sort(function(a, b){ return groups[a].name.localeCompare(groups[b].name); }).forEach(function(k){ opt(sel, k, groups[k].name); });
   if (cur && groups[cur]) sel.value = cur; else sel.value = '';
@@ -2337,22 +2445,30 @@ function renderSummary(){
     });
     return o;
   }
+  // Payments saved "on account" (not against a trip) reduce the party's pending. Counted when dated in these dates.
+  var oaList = sBy === 'party' ? (D.onacc || []).filter(function(p){ return (!df || String(p.date) >= df) && (!dt || String(p.date) <= dt); }) : [];
+  function oaFor(key){ var x = 0; oaList.forEach(function(p){ if (norm('party', p.party) === key) x += p.amount + p.expense; }); return x; }
+  var oa = pick ? oaFor(pick) : order.reduce(function(x, kk){ return x + oaFor(kk); }, 0);
+  var multi = sBy === 'driver' && !pick && inDates.some(function(t){ return drvList(t.driver).length > 1; });
   var o = tot(rows), k = $('s_kpi');
   k.innerHTML = '';
-  [kpi('Trips', String(o.n)), kpi('Weight', inr(o.w) + ' qtl'), kpi('Freight', '₹' + inr(o.f)), kpi('Advance', '₹' + inr(o.a)),
-   kpi('Paid', '₹' + inr(o.p)), kpi('Expense', '₹' + inr(o.e)), kpi('Remaining', '₹' + inr(o.r), true), kpi('Freight not entered', o.nf + ' trip' + (o.nf === 1 ? '' : 's'))
-  ].forEach(function(x){ k.appendChild(x); });
+  [kpi('Trips', String(o.n)), kpi('Weight', qty(o.w) + ' qtl'), kpi('Freight', '₹' + inr(o.f)), kpi('Advance', '₹' + inr(o.a)),
+   kpi('Paid', '₹' + inr(o.p)), kpi('Expense', '₹' + inr(o.e)), kpi(oa ? 'Remaining on trips' : 'Remaining', '₹' + inr(o.r), !oa), kpi('Freight not entered', o.nf + ' trip' + (o.nf === 1 ? '' : 's'))
+  ].concat(oa ? [kpi('Paid on account', '₹' + inr(oa)), kpi('Net remaining', '₹' + inr(o.r - oa), true)] : [])
+   .forEach(function(x){ k.appendChild(x); });
   $('s_note').textContent = (df || dt ? 'Trips dated ' + (df ? fmtDate(df) : 'start') + ' to ' + (dt ? fmtDate(dt) : 'today') + '. ' : 'All dates. ') +
-    'Paid and expense are payments entered against these trips.';
+    'Paid and expense are payments entered against these trips.' +
+    (oa ? ' "Paid on account" is money received without choosing a trip, dated in these dates; net remaining = remaining on trips − paid on account.' : '') +
+    (multi ? ' A trip with 2 or 3 drivers is counted under each driver, so the driver rows add up to more than the total.' : '');
   var box = $('s_list'); box.innerHTML = '';
   if (!pick) {
     $('s_listTitle').textContent = order.length ? 'By ' + lbl.toLowerCase() + ' (tap one for its trips)' : 'No trips in these dates.';
-    order.map(function(kk){ return { k: kk, g: groups[kk], o: tot(groups[kk].trips) }; })
-      .sort(function(a, b){ return b.o.r - a.o.r || b.o.f - a.o.f; })
+    order.map(function(kk){ var to = tot(groups[kk].trips), a = oaFor(kk); return { k: kk, g: groups[kk], o: to, oa: a, net: to.r - a }; })
+      .sort(function(a, b){ return b.net - a.net || b.o.f - a.o.f; })
       .forEach(function(x){
         var r = el('div', 'srow');
         var l = el('div'); l.appendChild(el('b', '', x.g.name)); l.appendChild(el('small', '', x.o.n + ' trip' + (x.o.n === 1 ? '' : 's') + ' · freight ₹' + inr(x.o.f)));
-        var rt = el('div', 'r'); rt.appendChild(el('b', '', '₹' + inr(x.o.r))); rt.appendChild(el('small', '', 'remaining'));
+        var rt = el('div', 'r'); rt.appendChild(el('b', '', '₹' + inr(x.net))); rt.appendChild(el('small', '', x.oa ? 'after ₹' + inr(x.oa) + ' on account' : 'remaining'));
         r.appendChild(l); r.appendChild(rt);
         r.onclick = function(){ $('s_which').value = x.k; renderSummary(); window.scrollTo(0, 0); };
         box.appendChild(r);
@@ -2371,10 +2487,12 @@ function renderSummary(){
       box.appendChild(r);
     });
   }
-  sView = { lbl: lbl, plural: sb[2], df: df, dt: dt, pick: pick, name: pick ? groups[pick].name : '', rows: rows, o: o,
-    groups: order.map(function(kk){ return { name: groups[kk].name, o: tot(groups[kk].trips) }; }).sort(function(a, b){ return b.o.r - a.o.r || b.o.f - a.o.f; }) };
-  sActions(pick ? groups[pick].name : '', rows, df, dt);
+  sView = { by: sBy, lbl: lbl, plural: sb[2], df: df, dt: dt, pick: pick, name: pick ? groups[pick].name : '', rows: rows, o: o, oa: oa, multi: multi,
+    groups: order.map(function(kk){ var to = tot(groups[kk].trips), a = oaFor(kk); return { name: groups[kk].name, trips: groups[kk].trips, o: to, oa: a, net: to.r - a }; })
+      .sort(function(a, b){ return b.net - a.net || b.o.f - a.o.f; }) };
+  sActions(pick ? groups[pick].name : '', rows, df, dt, oa);
   syncCombos();
+  if (curTab() === 'summary') saveState();
 }
 
 /* ---------- Print / PDF (Trip list and Summary) ---------- */
@@ -2414,17 +2532,58 @@ $('l_print').onclick = function(){
   printPdf($('l_print'), $('l_printOut'), { title: 'Trip list', subtitle: parts.join(' · ') + ' · Remaining total counts trips that are due', head: TRIP_HEAD,
     rows: tripRowsForPrint(lRows), foot: tripFoot(lRows), numCols: [6, 7, 8, 9, 10] });
 };
+function daysSince(ymd){ var x = String(ymd).split('-'), y = D.today.split('-'); return Math.round((Date.UTC(+y[0], +y[1] - 1, +y[2]) - Date.UTC(+x[0], +x[1] - 1, +x[2])) / 86400000); }
+function daysPending(trips){ var d = ''; trips.forEach(function(t){ if (t.status === 'Due' && t.date && (!d || String(t.date) < d)) d = String(t.date); }); return d ? daysSince(d) : ''; }
+// Party / transporter details from the master, for the top of the PDF.
+function infoFor(type, name){
+  if (type !== 'party' && type !== 'transporter') return [];
+  var r = findRec(type, name) || {};
+  var f = type === 'party' ? ['Contact Person', 'Phone', 'Address', 'City', 'GSTIN', 'Credit Days'] : ['Contact Person', 'Phone', 'Address', 'GSTIN / PAN'];
+  var out = f.filter(function(h){ return r[h]; }).map(function(h){ return [h, r[h]]; });
+  if (!r['Phone']) { var ph = phoneFor(name); if (ph) out.unshift(['Phone', ph]); }
+  return out;
+}
 $('s_print').onclick = function(){
   var v = sView; if (!v) return;
   var sub = 'Summary by ' + v.lbl + ': ' + (v.pick ? v.name : 'all ' + v.plural) + ' · Dates: ' + datesText(v.df, v.dt);
+  var o = v.o, notes = [], lines = [];
+  if (o.nf) notes.push(o.nf + ' trip' + (o.nf === 1 ? ' has' : 's have') + ' no freight entered; ' + (o.nf === 1 ? 'it is' : 'they are') + ' not in the Freight and Remaining totals.');
+  if (v.oa) notes.push('"Paid on account" is money received without choosing a trip, dated in these dates.');
+  if (v.multi) notes.push('A trip with 2 or 3 drivers is counted under each driver, so the driver rows add up to more than the Total row.');
   if (v.pick) {
-    printPdf($('s_print'), $('s_printOut'), { title: 'Summary – ' + v.name, subtitle: sub + ' · Remaining total counts trips that are due', head: TRIP_HEAD,
-      rows: tripRowsForPrint(v.rows), foot: tripFoot(v.rows), numCols: [6, 7, 8, 9, 10] });
+    var cols = [['Date', function(t){ return fmtDate(t.date); }]];
+    if (v.by !== 'party') cols.push(['Party', function(t){ return t.party; }]);
+    cols.push(['Route', function(t){ return t.from + ' → ' + t.to; }]);
+    if (v.by !== 'vehicle') cols.push(['Vehicle', function(t){ return t.vehicle; }]);
+    if (v.by !== 'driver') cols.push(['Driver', function(t){ return t.driver; }]);
+    cols.push(['Weight (qtl)', function(t){ return t.weight === '' || t.weight == null ? '' : +t.weight; }, 'w']);
+    cols.push(['Rate (₹/qtl)', function(t){ return t.ftype === 'Fixed amount' ? 'Fixed' : (t.rate === '' || t.rate == null ? '' : +t.rate); }, '-']);
+    cols.push(['Freight', function(t){ return t.freight === '' ? '' : t.freight; }, 'f']);
+    cols.push(['Advance', function(t){ return t.advance === '' ? '' : t.advance; }, 'a']);
+    cols.push(['Paid', function(t){ return t.paid; }, 'p']);
+    cols.push(['Expense', function(t){ return t.expense; }, 'e']);
+    cols.push(['Remaining', function(t){ return t.freight === '' ? '' : t.remaining; }, 'r']);
+    cols.push(['Status', function(t){ return t.status; }]);
+    cols.push(['Notes', function(t){ return t.notes || ''; }]);
+    var tots = { w: o.w, f: o.f, a: o.a, p: o.p, e: o.e, r: o.r };
+    var numCols = []; cols.forEach(function(c, i){ if (c[2]) numCols.push(i); });
+    if (v.oa) lines = [['Remaining on trips', o.r], ['Less: paid on account', -v.oa], ['Net remaining', o.r - v.oa]];
+    var min = num('s_min');
+    if (min && (v.by === 'party' || v.by === 'transporter')) notes.push('"Only trips pending above ₹' + inr(min) + '" is used for the WhatsApp reminder and statement, not for this list.');
+    printPdf($('s_print'), $('s_printOut'), { title: 'Summary – ' + v.name, subtitle: sub, info: infoFor(v.by, v.name),
+      head: cols.map(function(c){ return c[0]; }),
+      rows: v.rows.map(function(t){ return cols.map(function(c){ return c[1](t); }); }),
+      foot: cols.map(function(c, i){ return i === 0 ? 'Total (' + o.n + ' trip' + (o.n === 1 ? '' : 's') + ')' : (c[2] && c[2] in tots ? tots[c[2]] : ''); }),
+      numCols: numCols, lines: lines, notes: notes });
   } else {
+    var isP = v.by === 'party';
     printPdf($('s_print'), $('s_printOut'), { title: 'Summary by ' + v.lbl, subtitle: sub,
-      head: [v.lbl, 'Trips', 'Weight (qtl)', 'Freight', 'Advance', 'Paid', 'Expense', 'Remaining'],
-      rows: v.groups.map(function(g){ return [g.name, g.o.n, g.o.w, g.o.f, g.o.a, g.o.p, g.o.e, g.o.r]; }),
-      foot: ['Total', v.o.n, v.o.w, v.o.f, v.o.a, v.o.p, v.o.e, v.o.r], numCols: [1, 2, 3, 4, 5, 6, 7] });
+      head: [v.lbl, 'Trips', 'Weight (qtl)', 'Freight', 'Advance', 'Paid', 'Expense', 'Remaining', 'Freight not entered']
+        .concat(isP ? ['Paid on account', 'Net remaining', 'Phone', 'Days pending'] : []),
+      rows: v.groups.map(function(g){ return [g.name, g.o.n, g.o.w, g.o.f, g.o.a, g.o.p, g.o.e, g.o.r, g.o.nf]
+        .concat(isP ? [g.oa, g.net, phoneFor(g.name), daysPending(g.trips)] : []); }),
+      foot: ['Total', o.n, o.w, o.f, o.a, o.p, o.e, o.r, o.nf].concat(isP ? [v.oa, o.r - v.oa, '', ''] : []),
+      numCols: [1, 2, 3, 4, 5, 6, 7, 8].concat(isP ? [9, 10, 12] : []), notes: notes });
   }
 };
 
@@ -2524,8 +2683,9 @@ function periodText(df, dt){ return (df || dt) ? (df ? fmtDate(df) : 'start') + 
 // WhatsApp reminder: Hindi first, then the same message in English (same trips, same order, same total).
 // Each trip shows what the party recognises: date, route, vehicle, commodity, weight, rate (or "fixed"),
 // freight and what is still pending. No internal trip number.
-function remindText(name, rows, df, dt){
+function remindText(name, rows, df, dt, oa){
   var tot = 0; rows.forEach(function(t){ tot += t.remaining; });
+  oa = oa || 0;
   var per = periodText(df, dt), nl = String.fromCharCode(10), one = rows.length === 1;
   function rateNum(r){ return Number(r).toLocaleString('en-IN', { maximumFractionDigits: 2 }); }
   function line(t, hi){
@@ -2541,22 +2701,25 @@ function remindText(name, rows, df, dt){
   var hi = 'प्रिय ' + name + ',' + nl +
     (one ? 'इस ट्रिप का भाड़ा बाकी है:' : 'इन ' + rows.length + ' ट्रिप का भाड़ा बाकी है:') + nl +
     rows.map(function(t){ return line(t, true); }).join(nl) + nl +
-    'कुल बकाया: ₹' + inr(tot) + (per ? ' (' + per + ')' : '') + '।' + nl +
+    (oa ? 'खाते में मिला भुगतान (on account): -₹' + inr(oa) + nl : '') +
+    'कुल बकाया: ₹' + inr(tot - oa) + (per ? ' (' + per + ')' : '') + '।' + nl +
     'कृपया जल्द भुगतान करें। धन्यवाद।';
   var en = 'Dear ' + name + ',' + nl +
     (one ? 'Freight is pending for this trip:' : 'Freight is pending for these ' + rows.length + ' trips:') + nl +
     rows.map(function(t){ return line(t, false); }).join(nl) + nl +
-    'Total pending: ₹' + inr(tot) + (per ? ' (' + per + ')' : '') + '.' + nl +
+    (oa ? 'Less payment received on account: ₹' + inr(oa) + nl : '') +
+    'Total pending: ₹' + inr(tot - oa) + (per ? ' (' + per + ')' : '') + '.' + nl +
     'Kindly arrange the payment. Thank you.';
   return hi + nl + nl + en;
 }
-function sActions(name, rows, df, dt){
+function sActions(name, rows, df, dt, oa){
+  oa = sBy === 'party' ? (oa || 0) : 0;
   var box = $('s_act');
   if (!name || (sBy !== 'party' && sBy !== 'transporter') || norm('party', name) === 'self / own vehicle') { box.style.display = 'none'; sCur = null; return; }
   var min = num('s_min');
   var due = rows.filter(function(t){ return t.status === 'Due' && t.remaining >= min; })
     .sort(function(a, b){ return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
-  sCur = { name: name, rows: due, df: df, dt: dt, min: min };
+  sCur = { name: name, rows: due, df: df, dt: dt, min: min, oa: oa };
   box.style.display = 'flex';
   var a = $('s_wa'), ph = waNum(phoneFor(name));
   if (!due.length) {
@@ -2566,9 +2729,10 @@ function sActions(name, rows, df, dt){
   }
   $('s_stmtBtn').disabled = false;
   a.className = 'save wa'; a.textContent = 'WhatsApp reminder';
-  a.href = 'https://wa.me/' + ph + '?text=' + encodeURIComponent(remindText(name, due, df, dt));
+  a.href = 'https://wa.me/' + ph + '?text=' + encodeURIComponent(remindText(name, due, df, dt, oa));
   var tot = 0; due.forEach(function(t){ tot += t.remaining; });
-  $('s_actNote').textContent = due.length + ' pending trip' + (due.length === 1 ? '' : 's') + ', ₹' + inr(tot) + ' in total. ' +
+  $('s_actNote').textContent = due.length + ' pending trip' + (due.length === 1 ? '' : 's') + ', ₹' + inr(tot) +
+    (oa ? ' less ₹' + inr(oa) + ' paid on account = ₹' + inr(tot - oa) : '') + ' in total. ' +
     (ph ? 'Opens WhatsApp for ' + name + ' (' + ph.slice(-10) + ') with the message in English and Hindi.' :
       'No phone number saved for ' + name + ', so WhatsApp will ask you to pick the contact.');
 }
@@ -2591,8 +2755,13 @@ function showStatement(){
     l.appendChild(a); l.appendChild(el('b', '', '₹' + inr(t.remaining)));
     st.appendChild(l);
   });
-  var tl = el('div', 'tot'); tl.appendChild(el('span', '', 'Total pending')); tl.appendChild(el('span', '', '₹' + inr(tot)));
-  st.appendChild(tl); b.appendChild(st);
+  var tl = el('div', 'tot'); tl.appendChild(el('span', '', c.oa ? 'Total pending on trips' : 'Total pending')); tl.appendChild(el('span', '', '₹' + inr(tot)));
+  st.appendChild(tl);
+  if (c.oa) {
+    var t2 = el('div', 'sl'); t2.appendChild(el('span', '', 'Less: paid on account')); t2.appendChild(el('span', '', '−₹' + inr(c.oa))); st.appendChild(t2);
+    var t3 = el('div', 'tot'); t3.appendChild(el('span', '', 'Net pending')); t3.appendChild(el('span', '', '₹' + inr(tot - c.oa))); st.appendChild(t3);
+  }
+  b.appendChild(st);
   var row = el('div', 'row');
   var pdf = el('button', 'btn2', 'Save as PDF'); pdf.type = 'button';
   var wa = el('a', 'save wa', 'Send on WhatsApp'); wa.target = '_blank'; wa.rel = 'noopener'; wa.href = $('s_wa').href;
@@ -2631,6 +2800,24 @@ fillList('locs', D.locations); fillList('comms', D.commodities);
 tripReset(); payReset();
 ['t_from','t_to','t_via','t_commodity'].forEach(function(i){ $(i).addEventListener('change', function(){ $(i).value = pc($(i).value); }); });
 document.querySelectorAll('input,select,textarea').forEach(function(e){ e.addEventListener('input', function(){ e.classList.remove('bad'); }); });
+(function(){
+  var q = D.qs || {};
+  if (D.start === 'summary') {
+    if (SBY.some(function(x){ return x[0] === q.by; })) sBy = q.by;
+    if ('from' in q) $('s_from').value = q.from;
+    if ('to' in q) $('s_to').value = q.to;
+    if (q.min) $('s_min').value = q.min;
+    sPickInit = q.which || '';
+  }
+  if (D.start === 'trips') {
+    if (FILTERS.indexOf(q.lf) >= 0) listFilter = q.lf;
+    if (LBY.some(function(x){ return x[0] === q.lby; })) lBy = q.lby;
+    if ('lfrom' in q) $('l_from').value = q.lfrom;
+    if ('lto' in q) $('l_to').value = q.lto;
+    if (q.q) $('l_q').value = q.q;
+    lPickInit = q.lwhich || '';
+  }
+})();
 go(D.start || 'trip', true);
 </script></body></html>`;
 
@@ -3135,6 +3322,16 @@ function toDate_(v) {
 }
 
 function fmtD_(d) { return Utilities.formatDate(d, CONFIG.TIMEZONE, 'dd-MMM-yyyy'); }
+
+// Like inr_ but keeps up to 2 decimals (12.5 qtl stays 12.5, not 13).
+function fmtNum_(n) {
+  n = Number(n) || 0;
+  const neg = n < 0, a = Math.abs(n);
+  let whole = Math.floor(a), frac = Math.round((a - whole) * 100);
+  if (frac === 100) { whole++; frac = 0; }
+  const dec = frac ? '.' + String(frac).padStart(2, '0').replace(/0$/, '') : '';
+  return (neg && (whole || frac) ? '-' : '') + inr_(whole) + dec;
+}
 
 function inr_(n) {  // Indian digit grouping: 12,34,567
   n = Math.round(n);

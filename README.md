@@ -20,7 +20,7 @@ Trips were tracked in a notebook and payments from memory. The goal was somethin
 
 **Mobile forms (open in any phone browser)**
 - **New trip:** date (today by default), party, vehicle, up to 3 drivers, transporter, commodity, from/to, weight in quintal × rate → freight calculated automatically (or a fixed amount), advance. Only the basics are required; weight, rate and advance can be added later.
-- **Payment:** against a specific trip or "on account", with an Expense field. Remaining = freight − advance − payments − expense.
+- **Payment:** against a specific trip or "on account", with an Expense field. Remaining = freight − advance − payments − expense. On-account payments reduce the party's pending in Summary, the WhatsApp reminder and the statement.
 - **Trip list:** view and edit trips, add or edit payments; filter by status, party, driver, vehicle, transporter, date range or text search. Cleared trips are hidden by default.
 - **Summary:** totals by party, driver, vehicle or transporter for any period (last 7/30 days, this/last month, custom dates).
 - **Masters:** Party, Vehicle, Driver, Transporter, with "+ Add new" from inside the Trip and Payment forms.
@@ -35,7 +35,9 @@ Trips were tracked in a notebook and payments from memory. The goal was somethin
 
 **Reports and sharing**
 - Sheet tabs: Dashboard, Trip Summary, Party / Vehicle / Driver / Monthly summaries, and a Custom Report with filters (dates, party, vehicle, driver, transporter).
-- Print / Save as PDF from Trip list and Summary; party or transporter statement as PDF.
+- Print / Save as PDF from Trip list and Summary. For one party the Summary PDF shows the party's details (phone, address, GSTIN), and weight, rate and notes for each trip; for all parties it adds phone and days pending.
+- Party or transporter statement as PDF, with party details, driver, weight and rate for each trip, and a list of payments received.
+- **Refresh** reopens the page with fresh data on the same tab and filters; reloading the browser also keeps your tab.
 - **WhatsApp reminder** sent from the owner's own number with one tap (uses `wa.me` links, no paid API). Hindi first, then the same in English: date, route, vehicle, commodity, weight, rate, freight and pending amount for each trip.
 
 **Safety**
