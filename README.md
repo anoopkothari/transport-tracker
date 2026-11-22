@@ -19,7 +19,7 @@ Trips were tracked in a notebook and payments from memory. The goal was somethin
 ## Features
 
 **Mobile forms (open in any phone browser)**
-- **New trip:** date (today by default), party, vehicle, up to 3 drivers, transporter, commodity, from/to, weight in quintal × rate → freight calculated automatically (or a fixed amount), advance. Only the basics are required; weight, rate and advance can be added later.
+- **New trip:** in loading order: date (today by default), vehicle, up to 3 drivers, from/to, transporter, party, commodity, weight in quintal × rate (or a fixed amount), advance; freight is calculated automatically. Only the basics are required; weight, rate and advance can be added later.
 - **Payment:** against a specific trip or "on account", with an Expense field. Remaining = freight − advance − payments − expense. On-account payments reduce the party's pending in Summary, the WhatsApp reminder and the statement.
 - **Trip list:** view and edit trips, add or edit payments; filter by status, party, driver, vehicle, transporter, date range or text search. Cleared trips are hidden by default.
 - **Summary:** totals by party, driver, vehicle or transporter for any period (last 7/30 days, this/last month, custom dates).
@@ -57,10 +57,10 @@ Open the form link and use the **Party**, **Vehicle**, **Driver** and **Transpor
 
 ### 2. When a truck is loaded: enter the trip
 1. Tap **New trip**. The date is already today.
-2. Pick party, vehicle and driver. Type two or three letters to find a name (for example "ra" shows Ramesh and Rajesh).
+2. Pick the vehicle and driver, then from/to, transporter, party and commodity. Type two or three letters to find a name (for example "ra" shows Ramesh and Rajesh).
 3. If the name is new, tap **+ Add new**. The app warns you if a similar name already exists ("Did you mean Deepak?").
-4. Pick from/to, enter weight (quintal) and rate. Freight is calculated for you. Use **Fixed amount** if the deal is a lump sum.
-5. Enter any advance and tap **Save trip**. Weight, rate and advance can be left blank and filled in later.
+4. Enter weight (quintal) and rate, then any advance. Freight is calculated for you. Use **Fixed amount** if the deal is a lump sum.
+5. Tap **Save trip**. Weight, rate and advance can be left blank and filled in later.
 
 <p>
 <img src="02-new-trip.png" width="240" alt="New trip">
@@ -115,10 +115,10 @@ Open the form link and use the **Party**, **Vehicle**, **Driver** and **Transpor
 
 ### 2. गाड़ी लोड होने पर: ट्रिप भरें
 1. **New trip** दबाएँ। तारीख़ अपने आप आज की होती है।
-2. पार्टी, गाड़ी और ड्राइवर चुनें। नाम के दो-तीन अक्षर टाइप करें (जैसे "ra" लिखने पर Ramesh और Rajesh दिखेंगे)।
+2. गाड़ी और ड्राइवर चुनें, फिर कहाँ से / कहाँ तक, ट्रांसपोर्टर, पार्टी और माल (commodity)। नाम के दो-तीन अक्षर टाइप करें (जैसे "ra" लिखने पर Ramesh और Rajesh दिखेंगे)।
 3. नया नाम हो तो **+ Add new** दबाएँ। मिलता-जुलता नाम पहले से हो तो ऐप पूछेगा ("Did you mean Deepak?")।
-4. कहाँ से / कहाँ तक चुनें, वज़न (क्विंटल) और दर (rate) डालें। भाड़ा अपने आप बन जाएगा। तय रक़म का सौदा हो तो **Fixed amount** चुनें।
-5. एडवांस डालें और **Save trip** दबाएँ। वज़न, दर और एडवांस बाद में भी भर सकते हैं।
+4. वज़न (क्विंटल) और दर (rate) डालें, फिर एडवांस। भाड़ा अपने आप बन जाएगा। तय रक़म का सौदा हो तो **Fixed amount** चुनें।
+5. **Save trip** दबाएँ। वज़न, दर और एडवांस बाद में भी भर सकते हैं।
 
 <p>
 <img src="02-new-trip.png" width="240" alt="नई ट्रिप">

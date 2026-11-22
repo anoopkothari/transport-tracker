@@ -1,7 +1,7 @@
 /****************************************************************
  * TRANSPORT FREIGHT TRACKER — Mobile forms + Google Sheets
  *
- * VERSION: v3.14 (15-Nov-2026)
+ * VERSION: v3.15 (22-Nov-2026)
  * To check which version is running:
  *   - Sheet:  🚚 Transport menu → "Code version …" (last item)
  *   - Phone forms: shown at the top, next to the business name
@@ -10,6 +10,9 @@
  *   keep showing the old version).
  *
  * VERSION HISTORY
+ *   v3.15 22-Nov-2026  New trip boxes in loading order: Date, Vehicle,
+ *                      Driver, From, To, Transporter, Party, Commodity,
+ *                      Weight and Rate, Advance, Freight
  *   v3.14 15-Nov-2026  Refresh reloads the whole page and stays on the
  *                      same tab and filters (browser reload too);
  *                      "on account" payments reduce a party's pending in
@@ -117,7 +120,7 @@ const CONFIG = {
   DOC_EXPIRY_ALERT_DAYS: 30   // insurance / permit / licence alerts
 };
 
-const CODE_VERSION = 'v3.14';   // change this line together with VERSION at the top
+const CODE_VERSION = 'v3.15';   // change this line together with VERSION at the top
 
 const CUR = '₹#,##0;-₹#,##0';
 const DATE_F = 'dd-mmm-yyyy';
@@ -1551,16 +1554,16 @@ textarea{height:64px}
 <div id="t_head"><div class="hd2"><h1 id="t_title">New trip</h1><div class="hbtns"><button type="button" class="more" id="t_refresh">Refresh</button></div></div><div class="sub" id="t_sub"></div></div>
 <div class="g">
 <div><label class="req">Date</label><input type="date" id="t_date"></div>
-<div><label class="req">Party</label><select id="t_party"></select></div>
 <div><label class="req">Vehicle</label><select id="t_vehicle"></select></div>
-<div><label class="req">Driver</label><select id="t_driver"></select></div>
+<div class="full"><label class="req">Driver</label><select id="t_driver"></select></div>
 <div class="full" id="t_d2box" style="display:none"><div class="dl"><label>Second driver</label><button type="button" class="more" id="t_d2x">Remove</button></div><select id="t_driver2"></select></div>
 <div class="full" id="t_d3box" style="display:none"><div class="dl"><label>Third driver</label><button type="button" class="more" id="t_d3x">Remove</button></div><select id="t_driver3"></select></div>
 <div class="full"><button type="button" class="more" id="t_addDrv">+ Add another driver</button></div>
-<div><label>Transporter</label><select id="t_transporter"></select></div>
-<div><label>Commodity</label><input id="t_commodity" list="comms" autocomplete="off"></div>
 <div><label class="req">From</label><input id="t_from" list="locs" autocomplete="off"></div>
 <div><label class="req">To</label><input id="t_to" list="locs" autocomplete="off"></div>
+<div><label>Transporter</label><select id="t_transporter"></select></div>
+<div><label class="req">Party</label><select id="t_party"></select></div>
+<div class="full"><label>Commodity</label><input id="t_commodity" list="comms" autocomplete="off"></div>
 </div>
 <div class="seg"><button type="button" id="t_tq" class="on">Per quintal</button><button type="button" id="t_tf">Fixed amount</button></div>
 <div class="g">
@@ -2789,7 +2792,7 @@ function showStatement(){
 /* ---------- unsaved trip / payment kept on this phone ----------
    What is typed in New trip or Payment is kept in the phone's browser until it is saved, so Refresh,
    a browser reload or an accidental pull-down does not lose it. Cleared after a successful save. */
-var TRIP_F = ['t_date','t_party','t_vehicle','t_driver','t_driver2','t_driver3','t_transporter','t_commodity','t_from','t_to','t_weight','t_rate','t_fixed','t_advance','t_via','t_phone','t_notes'];
+var TRIP_F = ['t_date','t_vehicle','t_driver','t_driver2','t_driver3','t_from','t_to','t_transporter','t_party','t_commodity','t_weight','t_rate','t_fixed','t_advance','t_via','t_phone','t_notes'];
 var PAY_F = ['p_date','p_party','p_trip','p_amount','p_expense','p_ref','p_notes'];
 var DKEY = 'tt_draft_', draftOff = false;
 function saveDraft(kind){
